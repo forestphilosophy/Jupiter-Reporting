@@ -34,6 +34,45 @@ Cyber_EGM = Cyber_EGM.iloc[5:,col_start:col_end+1]
 Cyber_EGM.columns = Cyber_EGM.iloc[0]
 Cyber_EGM = Cyber_EGM[1:]
 
+#Creating the table for Staffit report file for planning
+df = pd.read_excel("C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/Staffit report 1703.xlsx")
+
+practice_idx = df.columns.get_loc("Practice")
+temp = df.iloc[:,practice_idx+1:]
+
+if datetime.now().month <= 5:
+    fiscal_end_year = datetime.now().year
+else:
+    fiscal_end_year = datetime.now().year + 1
+
+current_month = datetime(datetime.now().year, datetime.now().month, 1)
+end_fiscal = datetime(fiscal_end_year, 6, 1)
+
+#Getting a list of irrelevant columns that need to be dropped from the dataset, i.e. columns that have dates that are outside of range between the current month and end of current fiscal year
+
+columns_to_drop = [temp.columns[i] for i in range(len(temp.columns)) if not (current_month <= datetime.strptime(temp.columns[i][0:11], '%d-%b-%Y') < end_fiscal)]
+df = df.drop(columns_to_drop,axis=1).iloc[:-1,:]
+
+practice_idx = df.columns.get_loc("Practice")
+temp = df.iloc[:,practice_idx+1:]
+df[temp.columns] = df[temp.columns].fillna(value=0)
+
+for col in temp.columns:
+    work_week = int(col[-2:])
+    work_year = int(col[-9:-5])
+    #Check if the starting date and the ending date of certain workweek are in different months. And if so, we need to split the hours.
+    if date.fromisocalendar(work_year, work_week, 1).month != date.fromisocalendar(work_year, work_week, 5).month:
+        days_diff = (pd.Period(col[0:11],freq='M').end_time.date() - date.fromisocalendar(work_year, work_week, 1)).days
+        df[col] *= (1 - days_diff / 5)
+        
+        try:
+            idx = df.columns.get_loc(col)
+            next_col = df.columns[idx + 1]
+            df[next_col] = [df[next_col][i] * (days_diff / 5) if df[col][i] != 0 else df[next_col][i] for i in range(len(df[next_col]))]
+            
+        except:
+            continue
+
 #Loading the Details source table
 Details = pd.read_excel(Details_and_people_directory,sheet_name="data")
 People = pd.read_excel(Details_and_people_directory,sheet_name="People")
