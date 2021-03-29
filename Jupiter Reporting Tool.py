@@ -140,12 +140,11 @@ if datetime.now().month <= 5:
 else:
     fiscal_end_year = datetime.now().year + 1
 
-current_month = datetime(datetime.now().year, datetime.now().month, 1)
 end_fiscal = datetime(fiscal_end_year, 6, 1)
 
 #Getting a list of irrelevant columns that need to be dropped from the dataset, i.e. columns that have dates that are outside of range between the current month and end of current fiscal year
 
-columns_to_drop = [temp.columns[i] for i in range(len(temp.columns)) if not (current_month <= datetime.strptime(temp.columns[i][0:11], '%d-%b-%Y') < end_fiscal)]
+columns_to_drop = [temp.columns[i] for i in range(len(temp.columns)) if not ((datetime.strptime(temp.columns[i][0:11], '%d-%b-%Y') < end_fiscal) and (int(temp.columns[i][-2:]) >= date.today().isocalendar()[1]))]
 df = df.drop(columns_to_drop,axis=1).iloc[:-1,:]
 
 practice_idx = df.columns.get_loc("Practice")
@@ -158,12 +157,101 @@ for col in temp.columns:
     #Check if the starting date and the ending date of certain workweek are in different months. And if so, we need to split the hours.
     if date.fromisocalendar(work_year, work_week, 1).month != date.fromisocalendar(work_year, work_week, 5).month:
         days_diff = (pd.Period(col[0:11],freq='M').end_time.date() - date.fromisocalendar(work_year, work_week, 1)).days
-        df[col] *= (1 - days_diff / 5)
         
+        col_before = df[col].copy()
+        df[col] *= (1 - days_diff / 5)
+        col_after = df[col].copy()
+        differences = [before - after for before, after in zip(col_before, col_after)]
+
         try:
             idx = df.columns.get_loc(col)
             next_col = df.columns[idx + 1]
-            df[next_col] = [df[next_col][i] * (days_diff / 5) if df[col][i] != 0 else df[next_col][i] for i in range(len(df[next_col]))]
-            
+            df[next_col] = [x + y for x,y in zip(df[next_col],differences)]
+    
         except:
             continue
+
+#Unpivot the dataframe to be able to visualize it
+STAFFIT_report = pd.melt(df, id_vars=['Practitioner Name','Local Client ID','Client Description','Request Name', 'Booking Type', 'Cost Centre Desc',
+       'EMP ID', 'Cost Centre', 'Capability Desc', 'Role Number',
+       'Resource Requester', 'Engagement Manager', 'Business Desc Demand',
+       'Role Name', 'Business Line', 'Assignment Type', 'Allocation Type',
+       'Assignment Start Date', 'Assignment End Date', 'Engagement Code',
+       'Engagement Description', 'Engagement Industry', 'Resource Manager',
+       'Staffing Region', 'Federal Account', 'Global Level', 'Local Level','Request Number','Office','Practice'], var_name='Workweek', value_name='Planning Hours')
+STAFFIT_report['Month'] = [datetime.strptime(STAFFIT_report['Workweek'][i][0:11], '%d-%b-%Y').strftime("%B") for i in range(len(STAFFIT_report))]
+
+import pandas as pd
+from datetime import datetime, timedelta
+import collections
+
+#Creating the table for Staffit report file for planning
+Jupiter_pipeline = pd.read_excel("C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/Jupiter pipeline 20210317.xlsx")
+Jupiter_pipeline = Jupiter_pipeline[Jupiter_pipeline['Stage'].isin(['Orals','Contacted','Identified','Proposal Submitted', 'Qualified', 'Request to Propose', 'Verbal Commit'])]
+Jupiter_pipeline = Jupiter_pipeline[Jupiter_pipeline['Engagement Duration (Days)'].notnull()]
+Jupiter_pipeline = Jupiter_pipeline.reset_index(drop=True)
+
+#First, we want to get all the months that are relevant within our dataset, this is stored in the counter dict which will be used later to track the number of days in each month.
+result = []
+for i in range(len(Jupiter_pipeline)):
+    result += pd.date_range(Jupiter_pipeline['Project Start Date'][i],Jupiter_pipeline['Project End Date'][i], 
+                  freq='MS').strftime("%B-%y").tolist()
+relevent_months = list(set(result))
+counter = dict.fromkeys(relevent_months, [])
+
+def number_of_days(start_date, end_date):
+    """
+    This function is used to get the dictionary with key being the month and value being the number of days that are in that month.
+    The function takes in the starting date and ending date and returns a dictionary which shows the number of days for each month within that time range.
+    """
+    month_dict = collections.defaultdict(int)
+    date = start_date
+    
+    while date <= end_date:
+        key = '{}-{}'.format(date.strftime('%B'),str(date.year)[-2:])
+
+        month_dict[key] += 1
+        date += timedelta(days=1)
+
+    return month_dict
+
+for i in range(len(Jupiter_pipeline)):
+    start_date = Jupiter_pipeline['Project Start Date'][i]
+    end_date = Jupiter_pipeline['Project End Date'][i]
+    #Calling the number_of_days function to get the number of days for relevant months for each row in the dataset
+    relevant_months_dict = number_of_days(start_date, end_date)
+    
+    for k,v in counter.items():
+        if k in relevant_months_dict.keys():
+            counter[k] = counter[k] + [relevant_months_dict[k]]
+        else:
+            counter[k] = counter[k] + [0]
+            
+temp = pd.DataFrame.from_dict(counter)
+for i in range(len(temp)):
+    temp.iloc[i] = temp.iloc[i] * (Jupiter_pipeline['Weighted Split Amount (converted)'][i] / Jupiter_pipeline['Engagement Duration (Days)'][i])
+    
+relevant_df = Jupiter_pipeline[['Opportunity Leader', 'Split Leader', 'Industry', 'Sector',
+       'Account Name', 'Opportunity ID', 'Opportunity Name',
+       'Opportunity Split: Opportunity Split ID', 'Stage','Client Service Level 1', 'Client Service L1', 'Client Service Level 2',
+       'Client Service Level 3', 'Client Service Level 4', 'Function Level 1']]
+
+#Merging the two dataframes together to get the final dataframe 
+final_df = pd.concat([relevant_df, temp], axis=1)
+#Unpivot the dataframe so that we can visualize it in PowerBI
+final_df = pd.melt(final_df, id_vars=['Opportunity Leader', 'Split Leader', 'Industry', 'Sector',
+       'Account Name', 'Opportunity ID', 'Opportunity Name',
+       'Opportunity Split: Opportunity Split ID', 'Stage','Client Service Level 1', 'Client Service L1', 'Client Service Level 2',
+       'Client Service Level 3', 'Client Service Level 4', 'Function Level 1'], var_name='Month', value_name='Expected Revenue')
+
+#Creating the MIndex column so that we can sort the month column in PowerBI
+ranked_months = sorted(final_df['Month'], key = lambda x: (int(x.split('-')[1]), datetime.strptime(x.split('-')[0], "%B").month))
+ranked_months = list(dict.fromkeys(ranked_months))
+
+MIndex_dict = {}
+acc = 1
+for i in ranked_months:
+    MIndex_dict[i] = acc
+    acc += 1
+    
+final_df['Month_MIndex'] = [MIndex_dict[final_df['Month'][i]] for i in range(len(final_df))]
