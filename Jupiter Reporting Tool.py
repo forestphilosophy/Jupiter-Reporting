@@ -1,6 +1,10 @@
 import pandas as pd
-from datetime import datetime,date, timedelta
+from datetime import datetime, date, timedelta
 from time import strptime
+import numpy as np
+from os import listdir
+
+data_folder_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/"
 
 Missing_hours_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/Missings 22-02-2021.xlsx"
 Parked_hours_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/Parked 22-02-2021.xlsx"
@@ -12,13 +16,57 @@ KRA_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Re
 Targets_KRA_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/FY21 hours targets from 6+6.xlsx"
 Employee_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/Employee  (Juist medewerker).xlsx"
 
-#Loading the missing hours source table
-Missing_hours = pd.read_excel(Missing_hours_directory,sheet_name="Data")
-Year = [str(date.year)[-2:] for date in Missing_hours['To Date']]
-Missing_hours['Month & Year'] = list(map('-'.join, zip(Missing_hours['Month'], Year)))
+def get_date(file_name):
+    """
+    Function to get the dates from the missing hours and parked hours filenames for sorting later.
+    """
+    return datetime.strptime(file_name.split()[1], '%d-%m-%Y')
 
-#Loading the parked hours source table
-Parked_hours = pd.read_excel(Parked_hours_directory,sheet_name="Data incl. comments on hours")
+def load_missing_hours(filename):
+    """
+    Function to perform loading and preprocessing of the missing hours files. 
+    """
+    Missing_hours = pd.read_excel(data_folder_directory + filename,sheet_name="Data")
+    Year = [str(date.year)[-2:] for date in Missing_hours['To Date']]
+    Missing_hours['Month & Year'] = list(map('-'.join, zip(Missing_hours['Month'], Year)))
+    Missing_hours['Month & Year'] = Missing_hours['Month & Year'].str.title()
+    
+    return Missing_hours
+
+
+list_of_files = listdir(data_folder_directory)
+
+# Creating the missing hours tables
+missing_hours_files = [f for f in list_of_files if "Missings" in f]
+
+dates_dict = {}
+
+for i in missing_hours_files:
+    dates_dict[i] = get_date(i)
+
+sorted_missing_hours = sorted(dates_dict, key = lambda x: x[1])
+
+new_missing_hours = sorted_missing_hours[-1]
+old_missing_hours = sorted_missing_hours[-2]
+
+New_missing_hours = load_missing_hours(new_missing_hours)
+Old_missing_hours = load_missing_hours(old_missing_hours)
+
+# Creating the parked hours tables 
+parked_hours_files = [f for f in list_of_files if "Parked" in f]
+
+dates_dict = {}
+
+for i in parked_hours_files:
+    dates_dict[i] = get_date(i)
+
+sorted_parked_hours = sorted(dates_dict, key = lambda x: x[1])
+
+new_parked_hours = sorted_parked_hours[-1]
+old_parked_hours = sorted_parked_hours[-2]
+
+New_parked_hours = pd.read_excel(data_folder_directory + new_parked_hours,sheet_name="Data incl. comments on hours")
+Old_parked_hours = pd.read_excel(data_folder_directory + old_parked_hours,sheet_name="Data incl. comments on hours")
 
 #Loading the employee levels source table
 Employee_levels = pd.read_excel(Employee_levels_directory)
@@ -112,6 +160,8 @@ Dates['Dates'] = dates
 Dates['Month & Year'] = [date.strftime("%b") + '-' + date.strftime("%y") for date in Dates['Dates']]
 month_mapping = {'Jun':1, 'Jul':2, 'Aug':3, 'Sep':4, 'Oct':5, 'Nov':6, 'Dec':7, 'Jan':8, 'Feb':9, 'Mar':10, 'Apr':11, 'May':12}
 Dates['FiscalMIndex'] = [month_mapping[Dates['Month & Year'][i].split('-')[0]] for i in range(len(Dates))]
+Dates['Month'] = [Dates['Dates'][i].strftime("%B") for i in range(len(Dates))]
+Dates['Month short'] = [Dates['Dates'][i].strftime("%b") for i in range(len(Dates))]
 
 #Making the Month Order table
 Month_order = pd.DataFrame()
@@ -255,3 +305,89 @@ for i in ranked_months:
     acc += 1
     
 final_df['Month_MIndex'] = [MIndex_dict[final_df['Month'][i]] for i in range(len(final_df))]
+final_df['Dates'] = [datetime.strptime(final_df['Month'][i], "%B-%y").strftime("%m-%d-%Y") for i in range(len(final_df))]
+
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from os import listdir
+
+data_folder_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/"
+list_of_files = listdir(data_folder_directory)
+
+#Grabbing the month number from the file name
+month = [f for f in list_of_files if "GM analyse QRT004 - UHC Profitability-MTD" in f][0][-11:-9]
+#Converting the month number to month name
+month_name = datetime.strptime(month, "%m").strftime("%B")
+
+#Loading in the EGM_MTD table
+EGM_MTD = pd.read_excel("C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/GM analyse QRT004 - UHC Profitability-MTD29032021.xlsx",sheet_name='QRT004')
+col_start = np.where(EGM_MTD.iloc[5].str.find("GM UHC") == 0)[0][0]
+col_end = np.where(EGM_MTD.iloc[5].str.find("Total Chargeable Hours") == 0)[0][0]
+EGM_MTD = EGM_MTD.iloc[5:,col_start:col_end+1]
+EGM_MTD.columns = EGM_MTD.iloc[0]
+EGM_MTD = EGM_MTD[1:]
+EGM_MTD['Month'] = [month_name for i in range(len(EGM_MTD))]
+
+#Loading in the EGM_YTD table
+EGM_YTD = pd.read_excel("C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/GM analyse QRT004 - UHC Profitability-YTD29032021.xlsx",sheet_name='QRT004')
+col_start = np.where(EGM_YTD.iloc[5].str.find("GM UHC") == 0)[0][0]
+col_end = np.where(EGM_YTD.iloc[5].str.find("Total Chargeable Hours") == 0)[0][0]
+EGM_YTD = EGM_YTD.iloc[5:,col_start:col_end+1]
+EGM_YTD.columns = EGM_YTD.iloc[0]
+EGM_YTD = EGM_YTD[1:]
+
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from os import listdir
+
+def get_date(file_name):
+    """
+    Function to get the dates from the missing hours and parked hours filenames for sorting later.
+    """
+    return datetime.strptime(file_name.split()[1], '%d-%m-%Y')
+
+def load_missing_hours(filename):
+    """
+    Function to perform loading and preprocessing of the missing hours files. 
+    """
+    Missing_hours = pd.read_excel(data_folder_directory + filename,sheet_name="Data")
+    Year = [str(date.year)[-2:] for date in Missing_hours['To Date']]
+    Missing_hours['Month & Year'] = list(map('-'.join, zip(Missing_hours['Month'], Year)))
+    Missing_hours['Month & Year'] = Missing_hours['Month & Year'].str.title()
+    
+    return Missing_hours
+
+data_folder_directory = "C:/Users/jimmlin/OneDrive - Deloitte (O365D)/Desktop/Jupiter Report/"
+list_of_files = listdir(data_folder_directory)
+
+missing_hours_files = [f for f in list_of_files if "Missings" in f]
+
+dates_dict = {}
+
+for i in missing_hours_files:
+    dates_dict[i] = get_date(i)
+
+sorted_missing_hours = sorted(dates_dict, key = lambda x: x[1])
+
+new_missing_hours = sorted_missing_hours[-1]
+old_missing_hours = sorted_missing_hours[-2]
+
+New_missing_hours = load_missing_hours(new_missing_hours)
+Old_missing_hours = load_missing_hours(old_missing_hours)
+
+parked_hours_files = [f for f in list_of_files if "Parked" in f]
+
+dates_dict = {}
+
+for i in parked_hours_files:
+    dates_dict[i] = get_date(i)
+
+sorted_parked_hours = sorted(dates_dict, key = lambda x: x[1])
+
+new_parked_hours = sorted_parked_hours[-1]
+old_parked_hours = sorted_parked_hours[-2]
+
+New_parked_hours = pd.read_excel(data_folder_directory + new_parked_hours,sheet_name="Data incl. comments on hours")
+Old_parked_hours = pd.read_excel(data_folder_directory + old_parked_hours,sheet_name="Data incl. comments on hours")
